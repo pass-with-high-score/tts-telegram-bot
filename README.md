@@ -9,7 +9,7 @@ This bot lets users upload audio (voice notes, audio files) and returns a `.txt`
 
 ## Setup
 
-1) Python 3.9+
+1) Python 3.10+
 
 2) Install dependencies:
 ```
@@ -34,12 +34,7 @@ Bot token: <telegram_token>
 Deepgram token: <deepgram_api_key>
 ```
 
-4) Install/refresh dependencies (pin uses Deepgram v2 for Python 3.9):
-```
-pip install -U -r requirements.txt
-```
-
-5) Run the bot:
+4) Run the bot:
 ```
 python bot.py
 ```
@@ -47,6 +42,17 @@ python bot.py
 ## Usage
 - Send the bot a voice note or audio file
 - The bot will reply with a `.txt` document containing the transcription
+
+### Commands
+- `/status` — show current language/model settings
+- `/lang <code|auto>` — set language (e.g., `en-US`, `vi`) or enable auto-detect
+- `/detect <on|off>` — toggle language detection explicitly
+- `/model <name>` — set model (e.g., `nova-2`). Send without a name to reset default
+
+Tip for Vietnamese (vi)
+- Use Deepgram v3 with model `nova-2` for best results:
+  - `/lang vi`
+  - `/model nova-2`
 
 ## Notes
 - Deepgram supports many audio formats (ogg/opus, mp3, m4a, wav, etc.). The bot passes the file bytes with the best-known mimetype.

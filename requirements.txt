@@ -1,4 +1,3 @@
 python-telegram-bot>=20,<22
-# Deepgram v3 requires Python 3.10+ (uses match/case). Pin v2 for Python 3.9 compatibility.
-deepgram-sdk>=2,<3
+deepgram-sdk>=3.0.0
 python-dotenv>=1.0.0
