@@ -53,6 +53,8 @@ def ensure_schema() -> None:
         topics         boolean not null default true,
         intents        boolean not null default true,
         sentiment      boolean not null default true,
+        -- bot UI language (en|vi)
+        ui_language    text not null default 'en',
         created_at     timestamptz not null default now(),
         updated_at     timestamptz not null default now()
     );
@@ -79,6 +81,8 @@ def ensure_schema() -> None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(ddl)
+            # Ensure ui_language exists for older tables
+            cur.execute("alter table if exists user_settings add column if not exists ui_language text not null default 'en'")
 
 
 # Defaults used when no row exists yet
@@ -178,6 +182,36 @@ def save_ti_settings(chat_id: int, cfg: Dict[str, Any]) -> None:
                     cfg.get("sentiment", _TI_DEFAULT["sentiment"]),
                 ),
             )
+
+
+def get_ui_language(chat_id: int) -> str:
+    pool = _ensure_pool()
+    if not pool:
+        return "en"
+    sql = "select ui_language from user_settings where chat_id = %s"
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (chat_id,))
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return "en"
+            v = str(row[0]).lower()
+            return "vi" if v.startswith("vi") else "en"
+
+
+def save_ui_language(chat_id: int, lang: str) -> None:
+    pool = _ensure_pool()
+    if not pool:
+        return
+    lang = "vi" if str(lang).lower().startswith("vi") else "en"
+    sql = (
+        "insert into user_settings (chat_id, ui_language, language, detect_language, model, ti_language, summarize, topics, intents, sentiment) "
+        "values (%s, %s, 'en-US', false, '', 'en', 'v2', true, true, true) "
+        "on conflict (chat_id) do update set ui_language = excluded.ui_language"
+    )
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (chat_id, lang))
 
 
 def get_user_count() -> Optional[int]:

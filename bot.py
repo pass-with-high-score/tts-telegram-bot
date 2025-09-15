@@ -18,6 +18,8 @@ from db import (
     get_ti_settings as db_get_ti_settings,
     save_ti_settings as db_save_ti_settings,
     get_user_count as db_get_user_count,
+    get_ui_language as db_get_ui_language,
+    save_ui_language as db_save_ui_language,
 )
 from transcribe import DeepgramTranscriber
 from text_intelligence import TextAnalyzer
@@ -31,9 +33,8 @@ logger = logging.getLogger("tl-bot-stt")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Send me an audio file or voice note, and I'll return a transcription as a .txt file."
-    )
+    msg = t(update, context, "start_message")
+    await update.message.reply_text(msg)
 
 
 ADMIN_USER_ID = 1578783338
@@ -179,25 +180,173 @@ async def admin_set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("Failed to update setting.")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Usage:\n"
-        "- Send a voice message, audio, or upload an audio file.\n"
-        "- I will process and reply with a text file.\n\n"
-        "Language options:\n"
-        "/status — show current language/model settings\n"
-        "/lang <code|auto> — set language (e.g., en-US, vi) or auto-detect\n"
-        "/detect <on|off> — toggle language detection\n"
-        "/model <name> — set model (e.g., nova-2). Leave blank to reset default.\n\n"
-        "Text Intelligence (Python 3.10+ only):\n"
-        "/analyze <text> — summarize, topics, intents, sentiment\n"
-        "/anstatus — show TI settings\n"
-        "/summarize <off|v2>\n"
-        "/topics <on|off>\n"
-        "/intents <on|off>\n"
-        "/sentiment <on|off>\n"
-        "/anlang <code> — TI language (e.g., en, vi)\n"
-        "Or upload a .txt/.md/.srt/.vtt file to analyze contents."
-    )
+    await update.message.reply_text(t(update, context, "help_message"))
+
+
+# UI language per-user (en|vi)
+def _get_ui_lang(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
+    store = context.application.bot_data.setdefault("_ui_lang", {})
+    v = store.get(chat_id)
+    if not v:
+        v = db_get_ui_language(chat_id)
+        store[chat_id] = v
+    return v
+
+
+def t(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str) -> str:
+    chat_id = update.effective_chat.id if update.effective_chat else 0
+    lang = _get_ui_lang(context, chat_id)
+    en = {
+        "start_message": "Send me an audio file or voice note, and I'll return a transcription as a .txt file.",
+        "help_message": (
+            "Usage:\n"
+            "- Send a voice message, audio, or upload an audio file.\n"
+            "- I will process and reply with a text file.\n\n"
+            "Interface language:\n"
+            "/language <English|Vietnamese|en|vi> — set bot language\n\n"
+            "Speech recognition options:\n"
+            "/speechlang <English|Vietnamese|en|vi|auto> — set speech language\n"
+            "/status — show current language/model settings\n"
+            "/lang <code|auto> — set language (e.g., en-US, vi) or auto-detect\n"
+            "/detect <on|off> — toggle language detection\n"
+            "/model <name> — set model (e.g., nova-2). Leave blank to reset default.\n\n"
+            "Text Intelligence:\n"
+            "/analyze <text> — summarize, topics, intents, sentiment\n"
+            "/anstatus — show TI settings\n"
+            "/summarize <off|v2>\n"
+            "/topics <on|off>\n"
+            "/intents <on|off>\n"
+            "/sentiment <on|off>\n"
+            "/anlang <code> — TI language (e.g., en, vi)\n"
+            "Or upload a .txt/.md/.srt/.vtt file to analyze contents."
+        ),
+        "analyze_requires_upgrade": "Text Intelligence isn't available right now.",
+        "couldnt_download_file": "Couldn't download that file.",
+        "analyzing_text": "Analyzing text…",
+        "analyzing_file_text": "Analyzing file text…",
+        "transcribing": "Transcribing… this may take a moment.",
+        "transcription_empty": "Transcription came back empty. The audio may be too quiet or unsupported.",
+        "transcription_caption": "Here is your transcription.",
+        "transcribe_failed": "Sorry, I couldn't transcribe that audio.",
+        "ui_lang_set_en": "Interface language set to English.",
+        "ui_lang_set_vi": "Đã chuyển ngôn ngữ hiển thị sang Tiếng Việt.",
+        "language_usage": "Usage: /language <English|Vietnamese|en|vi>",
+        "speechlang_usage": "Usage: /speechlang <English|Vietnamese|en|vi|auto>",
+        "speechlang_set_en": "Speech recognition language set to English (en-US).",
+        "speechlang_set_vi": "Speech recognition language set to Vietnamese (vi).",
+        "speechlang_set_auto": "Language detection enabled for speech recognition.",
+    }
+    vi = {
+        "start_message": "Gửi cho tôi file âm thanh hoặc voice note, tôi sẽ trả về bản ghi (.txt).",
+        "help_message": (
+            "Cách dùng:\n"
+            "- Gửi voice, audio hoặc tải lên file âm thanh.\n"
+            "- Tôi sẽ xử lý và gửi lại file văn bản.\n\n"
+            "Ngôn ngữ giao diện:\n"
+            "/language <English|Vietnamese|en|vi> — đổi ngôn ngữ bot\n\n"
+            "Tùy chọn nhận dạng giọng nói:\n"
+            "/speechlang <English|Vietnamese|en|vi|auto> — đặt ngôn ngữ nhận dạng\n"
+            "/status — xem cài đặt ngôn ngữ/mô hình\n"
+            "/lang <code|auto> — đặt ngôn ngữ (vd: en-US, vi) hoặc tự động\n"
+            "/detect <on|off> — bật/tắt tự phát hiện ngôn ngữ\n"
+            "/model <name> — đặt mô hình (vd: nova-2). Bỏ trống để về mặc định.\n\n"
+            "Text Intelligence:\n"
+            "/analyze <text> — tóm tắt, chủ đề, ý định, cảm xúc\n"
+            "/anstatus — xem cài đặt TI\n"
+            "/summarize <off|v2>\n"
+            "/topics <on|off>\n"
+            "/intents <on|off>\n"
+            "/sentiment <on|off>\n"
+            "/anlang <code> — ngôn ngữ phân tích (vd: en, vi)\n"
+            "Hoặc tải lên file .txt/.md/.srt/.vtt để phân tích."
+        ),
+        "analyze_requires_upgrade": "Tính năng Phân tích văn bản hiện chưa khả dụng.",
+        "couldnt_download_file": "Không tải được file.",
+        "analyzing_text": "Đang phân tích văn bản…",
+        "analyzing_file_text": "Đang phân tích nội dung file…",
+        "transcribing": "Đang chuyển giọng nói thành văn bản…",
+        "transcription_empty": "Kết quả trống. Âm thanh quá nhỏ hoặc không hỗ trợ.",
+        "transcription_caption": "Bản ghi của bạn đây.",
+        "transcribe_failed": "Xin lỗi, tôi không thể chuyển âm thanh này.",
+        "ui_lang_set_en": "Đã chuyển ngôn ngữ hiển thị sang English.",
+        "ui_lang_set_vi": "Đã chuyển ngôn ngữ hiển thị sang Tiếng Việt.",
+        "language_usage": "Cú pháp: /language <English|Vietnamese|en|vi>",
+        "speechlang_usage": "Cú pháp: /speechlang <English|Vietnamese|en|vi|auto>",
+        "speechlang_set_en": "Đã đặt ngôn ngữ nhận dạng thành English (en-US).",
+        "speechlang_set_vi": "Đã đặt ngôn ngữ nhận dạng thành Tiếng Việt (vi).",
+        "speechlang_set_auto": "Đã bật tự phát hiện ngôn ngữ cho nhận dạng giọng nói.",
+    }
+    table = vi if lang == "vi" else en
+    return table.get(key, en.get(key, key))
+
+
+def _parse_ui_lang(arg: str) -> str:
+    a = (arg or "").strip().lower()
+    if a in {"vi", "vietnamese", "viet", "tiếng việt", "tieng viet", "vn"}:
+        return "vi"
+    if a in {"en", "english"}:
+        return "en"
+    return ""
+
+
+async def language_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await update.message.reply_text(t(update, context, "language_usage"))
+        return
+    lang = _parse_ui_lang(parts[1])
+    if not lang:
+        await update.message.reply_text(t(update, context, "language_usage"))
+        return
+    # Save to cache and DB
+    context.application.bot_data.setdefault("_ui_lang", {})[chat_id] = lang
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_ui_language, chat_id, lang)
+    except Exception:
+        pass
+    # Confirm in selected language
+    key = "ui_lang_set_vi" if lang == "vi" else "ui_lang_set_en"
+    await update.message.reply_text(t(update, context, key))
+
+
+async def speechlang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await update.message.reply_text(t(update, context, "speechlang_usage"))
+        return
+    arg = parts[1].strip()
+    a = arg.lower()
+    cfg = _get_lang_cfg(context, chat_id)
+    if a in {"auto", "detect"}:
+        cfg["detect_language"] = True
+        try:
+            import asyncio as _asyncio
+            await _asyncio.to_thread(db_save_lang_settings, chat_id, cfg)
+        except Exception:
+            pass
+        await update.message.reply_text(t(update, context, "speechlang_set_auto"))
+        return
+    lang = _parse_ui_lang(a)
+    if not lang:
+        await update.message.reply_text(t(update, context, "speechlang_usage"))
+        return
+    if lang == "en":
+        cfg["language"] = "en-US"
+        cfg["detect_language"] = False
+        key = "speechlang_set_en"
+    else:
+        cfg["language"] = "vi"
+        cfg["detect_language"] = False
+        key = "speechlang_set_vi"
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_lang_settings, chat_id, cfg)
+    except Exception:
+        pass
+    await update.message.reply_text(t(update, context, key))
 
 
 def _get_ti_cfg(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
@@ -324,9 +473,7 @@ async def analyze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     analyzer = TextAnalyzer(dg_key)
     if not analyzer.is_available():
-        await update.message.reply_text(
-            "Text Intelligence requires Python 3.10+ and deepgram-sdk>=3. Upgrade to enable it."
-        )
+        await update.message.reply_text(t(update, context, "analyze_requires_upgrade"))
         return
 
     cfg = _get_ti_cfg(context, update.effective_chat.id)
@@ -345,7 +492,7 @@ async def analyze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "sentiment": cfg.get("sentiment"),
     }
 
-    await update.message.reply_text("Analyzing text…")
+    await update.message.reply_text(t(update, context, "analyzing_text"))
     # Run in a thread since v3 SDK call is sync
     import asyncio as _asyncio
     result = await _asyncio.to_thread(analyzer.analyze_text, content, options)
@@ -374,7 +521,7 @@ async def handle_text_document(update: Update, context: ContextTypes.DEFAULT_TYP
 
     analyzer = TextAnalyzer(dg_key)
     if not analyzer.is_available():
-        await message.reply_text("Text Intelligence requires Python 3.10+ and deepgram-sdk>=3.")
+        await message.reply_text(t(update, context, "analyze_requires_upgrade"))
         return
 
     cfg = _get_ti_cfg(context, update.effective_chat.id)
@@ -389,7 +536,7 @@ async def handle_text_document(update: Update, context: ContextTypes.DEFAULT_TYP
         except UnicodeDecodeError:
             text = data.decode("latin-1")
     except Exception:
-        await message.reply_text("Couldn't download that file.")
+        await message.reply_text(t(update, context, "couldnt_download_file"))
         return
 
     options = {
@@ -400,7 +547,7 @@ async def handle_text_document(update: Update, context: ContextTypes.DEFAULT_TYP
         "sentiment": cfg.get("sentiment"),
     }
 
-    await message.reply_text("Analyzing file text…")
+    await message.reply_text(t(update, context, "analyzing_file_text"))
     import asyncio as _asyncio
     result = await _asyncio.to_thread(analyzer.analyze_text, text, options)
     if not result.ok:
@@ -583,12 +730,12 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         file_path, mime = await _download_audio(update, context)
     except Exception:
         logger.exception("Failed to download audio")
-        await message.reply_text("Sorry, I couldn't download that file. Please try again.")
+        await message.reply_text(t(update, context, "couldnt_download_file"))
         return
 
     try:
         # Notify user
-        await message.reply_text("Transcribing… this may take a moment.")
+        await message.reply_text(t(update, context, "transcribing"))
 
         # Transcribe with language settings
         dg_opts = {"detect_language": True} if lang_cfg.get("detect_language") else {"language": lang_cfg.get("language")}
@@ -607,7 +754,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             result = await transcriber.transcribe_file(file_path, explicit_mime=mime, options=fb_opts)
         text = result.text.strip()
         if not text:
-            await message.reply_text("Transcription came back empty. The audio may be too quiet or unsupported.")
+            await message.reply_text(t(update, context, "transcription_empty"))
             return
 
         # Write to a temporary .txt and send back
@@ -623,7 +770,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             pass
 
         with out_file.open("rb") as f:
-            await message.reply_document(document=InputFile(f, filename=out_file.name), caption="Here is your transcription.")
+            await message.reply_document(document=InputFile(f, filename=out_file.name), caption=t(update, context, "transcription_caption"))
     except Exception as ex:
         logger.exception("Transcription failed")
         msg = str(ex) if ex else ""
@@ -634,7 +781,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 "Then set: /lang vi and /model nova-2, and resend the audio."
             )
         else:
-            await message.reply_text("Sorry, I couldn't transcribe that audio.")
+            await message.reply_text(t(update, context, "transcribe_failed"))
     finally:
         # Cleanup temp files
         try:
@@ -648,6 +795,7 @@ def build_app(tg_token: str) -> Application:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("language", language_cmd))
     # Text Intelligence commands (gated at runtime)
     app.add_handler(CommandHandler("analyze", analyze_cmd))
     app.add_handler(CommandHandler("anstatus", ti_status_cmd))
@@ -660,6 +808,7 @@ def build_app(tg_token: str) -> Application:
     app.add_handler(CommandHandler("lang", lang_cmd))
     app.add_handler(CommandHandler("detect", detect_cmd))
     app.add_handler(CommandHandler("model", model_cmd))
+    app.add_handler(CommandHandler("speechlang", speechlang_cmd))
 
     # Admin commands (restricted by user id)
     app.add_handler(CommandHandler("admin", admin_cmd))

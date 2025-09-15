@@ -63,12 +63,14 @@ Notes:
 - The bot will reply with a `.txt` document containing the transcription
 
 ### Commands
+- `/language <English|Vietnamese|en|vi>` — set the bot's interface language
+- `/speechlang <English|Vietnamese|en|vi|auto>` — set speech recognition language
 - `/status` — show current language/model settings
 - `/lang <code|auto>` — set language (e.g., `en-US`, `vi`) or enable auto-detect
 - `/detect <on|off>` — toggle language detection explicitly
 - `/model <name>` — set model (e.g., `nova-2`). Send without a name to reset default
 
-Text Intelligence (Python 3.10+, Deepgram v3)
+Text Intelligence
 - `/analyze <text>` — Analyze text (summary, topics, intents, sentiment)
 - `/anstatus` — Show Text Intelligence settings
 - `/summarize <off|v2>` — Summarizer
