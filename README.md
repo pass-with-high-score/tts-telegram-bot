@@ -21,6 +21,7 @@ pip install -r requirements.txt
 3) Configure tokens (recommended via env vars or `.env`):
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token
 - `DEEPGRAM_API_KEY`: Your Deepgram API key
+ - `DATABASE_URL` (optional): Postgres URL to persist per-user settings
 
 Create `.env` from the example:
 ```
@@ -38,6 +39,24 @@ Deepgram token: <deepgram_api_key>
 ```
 python bot.py
 ```
+
+### Optional: Persist user settings with Postgres (Supabase)
+
+If you want each user's language/model and Text Intelligence preferences to persist across restarts, provide a Postgres connection string via `DATABASE_URL` (the bot auto-creates the `user_settings` table):
+
+```
+DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
+```
+
+For Supabase:
+- In your project, go to Settings → Database → Connection string, pick "URI".
+- Use the host `db.<project_ref>.supabase.co` and the database password you configured.
+- Example:
+  `postgresql://postgres:<your-db-password>@db.<project_ref>.supabase.co:5432/postgres`
+
+Notes:
+- The bot uses a small connection pool and will create the `user_settings` table if missing.
+- If `DATABASE_URL` is not set, settings are stored in-memory and reset on restart.
 
 ## Usage
 - Send the bot a voice note or audio file
@@ -78,3 +97,4 @@ Enable Text Intelligence
 - If you see a message about missing configuration, ensure the env vars are set or `.env` contains both keys.
 - Network connectivity is required for Deepgram to transcribe.
 - If transcription is empty, the audio may be silent, too noisy, or unsupported.
+ - If DB persistence doesn't work, verify `DATABASE_URL` is correct and your IP/network can reach the Supabase Postgres endpoint.

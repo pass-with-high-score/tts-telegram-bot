@@ -10,6 +10,14 @@ from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import load_config
+from db import (
+    ensure_schema as db_ensure_schema,
+    is_enabled as db_is_enabled,
+    get_lang_settings as db_get_lang_settings,
+    save_lang_settings as db_save_lang_settings,
+    get_ti_settings as db_get_ti_settings,
+    save_ti_settings as db_save_ti_settings,
+)
 from transcribe import DeepgramTranscriber
 from text_intelligence import TextAnalyzer
 
@@ -53,13 +61,8 @@ def _get_ti_cfg(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
     store = context.application.bot_data.setdefault("_ti_cfg", {})
     cfg = store.get(chat_id)
     if not cfg:
-        cfg = {
-            "language": "en",
-            "summarize": "v2",
-            "topics": True,
-            "intents": True,
-            "sentiment": True,
-        }
+        # Load from DB if configured; otherwise defaults
+        cfg = db_get_ti_settings(chat_id)
         store[chat_id] = cfg
     return cfg
 
@@ -95,6 +98,12 @@ async def summarize_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     cfg = _get_ti_cfg(context, chat_id)
     cfg["summarize"] = parts[1].strip().lower()
     await update.message.reply_text(f"summarize set to {cfg['summarize']}")
+    # Persist
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_ti_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def topics_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -107,6 +116,11 @@ async def topics_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     cfg = _get_ti_cfg(context, chat_id)
     cfg["topics"] = v
     await update.message.reply_text(f"topics set to {cfg['topics']}")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_ti_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def intents_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,6 +133,11 @@ async def intents_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     cfg = _get_ti_cfg(context, chat_id)
     cfg["intents"] = v
     await update.message.reply_text(f"intents set to {cfg['intents']}")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_ti_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def sentiment_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -131,6 +150,11 @@ async def sentiment_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     cfg = _get_ti_cfg(context, chat_id)
     cfg["sentiment"] = v
     await update.message.reply_text(f"sentiment set to {cfg['sentiment']}")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_ti_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def anlang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -142,6 +166,11 @@ async def anlang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     cfg = _get_ti_cfg(context, chat_id)
     cfg["language"] = parts[1].strip().split()[0]
     await update.message.reply_text(f"analysis language set to {cfg['language']}")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_ti_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def analyze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -248,7 +277,7 @@ def _get_lang_cfg(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
     store = context.application.bot_data.setdefault("_lang_cfg", {})
     cfg = store.get(chat_id)
     if not cfg:
-        cfg = {"detect_language": False, "language": "en-US", "model": ""}
+        cfg = db_get_lang_settings(chat_id)
         store[chat_id] = cfg
     return cfg
 
@@ -281,6 +310,11 @@ async def lang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         cfg["language"] = arg
         cfg["detect_language"] = False
         await update.message.reply_text(f"Language set to {arg}.")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_lang_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def detect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -297,6 +331,11 @@ async def detect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     cfg = _get_lang_cfg(context, chat_id)
     cfg["detect_language"] = (arg == "on")
     await update.message.reply_text(f"detect_language set to {cfg['detect_language']}")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_lang_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -307,10 +346,20 @@ async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(parts) < 2:
         cfg["model"] = ""
         await update.message.reply_text("Model reset to default.")
+        try:
+            import asyncio as _asyncio
+            await _asyncio.to_thread(db_save_lang_settings, chat_id, cfg)
+        except Exception:
+            pass
         return
     model = parts[1].strip()
     cfg["model"] = model
     await update.message.reply_text(f"Model set to {model or '(default)'}.")
+    try:
+        import asyncio as _asyncio
+        await _asyncio.to_thread(db_save_lang_settings, chat_id, cfg)
+    except Exception:
+        pass
 
 
 def _build_temp_filename(base_dir: Path, suggested_name: Optional[str], default_ext: str = ".ogg") -> Path:
@@ -499,6 +548,15 @@ def build_app(tg_token: str) -> Application:
 
 def main():
     tg_token, _ = load_config()
+    # Initialize database schema if configured
+    try:
+        db_ensure_schema()
+        if db_is_enabled():
+            logger.info("Database: enabled (settings will be persisted)")
+        else:
+            logger.info("Database: not configured; settings will be in-memory only")
+    except Exception:
+        logger.exception("Database initialization failed; continuing without persistence")
     app = build_app(tg_token)
     logger.info("Bot is starting…")
     # Run polling in the current thread (handles setup/shutdown internally)
