@@ -49,10 +49,25 @@ python bot.py
 - `/detect <on|off>` — toggle language detection explicitly
 - `/model <name>` — set model (e.g., `nova-2`). Send without a name to reset default
 
+Text Intelligence (Python 3.10+, Deepgram v3)
+- `/analyze <text>` — Analyze text (summary, topics, intents, sentiment)
+- `/anstatus` — Show Text Intelligence settings
+- `/summarize <off|v2>` — Summarizer
+- `/topics <on|off>` — Topic detection
+- `/intents <on|off>` — Intent detection
+- `/sentiment <on|off>` — Sentiment analysis
+- `/anlang <code>` — Analysis language (e.g., `en`, `vi`)
+- You can also upload `.txt/.md/.srt/.vtt` files to analyze their contents
+
 Tip for Vietnamese (vi)
-- Use Deepgram v3 with model `nova-2` for best results:
-  - `/lang vi`
-  - `/model nova-2`
+- On Deepgram v2, some language/model combos may 400. If that happens, try `/lang auto`. For best results, upgrade to Python 3.10+ and use model `nova-2`.
+
+Enable Text Intelligence
+- Create a Python 3.10+ virtualenv and install Deepgram v3:
+  - `python3.10 -m venv .venv && source .venv/bin/activate`
+  - `pip install -U pip`
+  - `pip install -U deepgram-sdk>=3`
+- Optionally update `requirements.txt` to `deepgram-sdk>=3.0.0` if you are moving the whole project to Python 3.10+.
 
 ## Notes
 - Deepgram supports many audio formats (ogg/opus, mp3, m4a, wav, etc.). The bot passes the file bytes with the best-known mimetype.

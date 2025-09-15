@@ -11,6 +11,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from config import load_config
 from transcribe import DeepgramTranscriber
+from text_intelligence import TextAnalyzer
 
 
 logging.basicConfig(
@@ -35,8 +36,212 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/status — show current language/model settings\n"
         "/lang <code|auto> — set language (e.g., en-US, vi) or auto-detect\n"
         "/detect <on|off> — toggle language detection\n"
-        "/model <name> — set model (e.g., nova-2). Leave blank to reset default.\n"
+        "/model <name> — set model (e.g., nova-2). Leave blank to reset default.\n\n"
+        "Text Intelligence (Python 3.10+ only):\n"
+        "/analyze <text> — summarize, topics, intents, sentiment\n"
+        "/anstatus — show TI settings\n"
+        "/summarize <off|v2>\n"
+        "/topics <on|off>\n"
+        "/intents <on|off>\n"
+        "/sentiment <on|off>\n"
+        "/anlang <code> — TI language (e.g., en, vi)\n"
+        "Or upload a .txt/.md/.srt/.vtt file to analyze contents."
     )
+
+
+def _get_ti_cfg(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
+    store = context.application.bot_data.setdefault("_ti_cfg", {})
+    cfg = store.get(chat_id)
+    if not cfg:
+        cfg = {
+            "language": "en",
+            "summarize": "v2",
+            "topics": True,
+            "intents": True,
+            "sentiment": True,
+        }
+        store[chat_id] = cfg
+    return cfg
+
+
+async def ti_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    cfg = _get_ti_cfg(context, chat_id)
+    await update.message.reply_text(
+        "Text Intelligence settings:\n"
+        f"language: {cfg.get('language')}\n"
+        f"summarize: {cfg.get('summarize')}\n"
+        f"topics: {cfg.get('topics')}\n"
+        f"intents: {cfg.get('intents')}\n"
+        f"sentiment: {cfg.get('sentiment')}\n"
+    )
+
+
+def _parse_bool_arg(text: str) -> Optional[bool]:
+    a = (text or "").strip().lower()
+    if a in {"on", "true", "yes", "1"}:
+        return True
+    if a in {"off", "false", "no", "0"}:
+        return False
+    return None
+
+
+async def summarize_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or parts[1].strip().lower() not in {"off", "v2"}:
+        await update.message.reply_text("Usage: /summarize <off|v2>")
+        return
+    cfg = _get_ti_cfg(context, chat_id)
+    cfg["summarize"] = parts[1].strip().lower()
+    await update.message.reply_text(f"summarize set to {cfg['summarize']}")
+
+
+async def topics_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    v = _parse_bool_arg(parts[1] if len(parts) > 1 else "")
+    if v is None:
+        await update.message.reply_text("Usage: /topics <on|off>")
+        return
+    cfg = _get_ti_cfg(context, chat_id)
+    cfg["topics"] = v
+    await update.message.reply_text(f"topics set to {cfg['topics']}")
+
+
+async def intents_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    v = _parse_bool_arg(parts[1] if len(parts) > 1 else "")
+    if v is None:
+        await update.message.reply_text("Usage: /intents <on|off>")
+        return
+    cfg = _get_ti_cfg(context, chat_id)
+    cfg["intents"] = v
+    await update.message.reply_text(f"intents set to {cfg['intents']}")
+
+
+async def sentiment_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    v = _parse_bool_arg(parts[1] if len(parts) > 1 else "")
+    if v is None:
+        await update.message.reply_text("Usage: /sentiment <on|off>")
+        return
+    cfg = _get_ti_cfg(context, chat_id)
+    cfg["sentiment"] = v
+    await update.message.reply_text(f"sentiment set to {cfg['sentiment']}")
+
+
+async def anlang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = (update.message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await update.message.reply_text("Usage: /anlang <code> (e.g., en, vi, ja)")
+        return
+    cfg = _get_ti_cfg(context, chat_id)
+    cfg["language"] = parts[1].strip().split()[0]
+    await update.message.reply_text(f"analysis language set to {cfg['language']}")
+
+
+async def analyze_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_token, dg_key = context.bot_data.get("_cfg", (None, None))
+    if not dg_key:
+        tg_token, dg_key = load_config()
+        context.bot_data["_cfg"] = (tg_token, dg_key)
+
+    analyzer = TextAnalyzer(dg_key)
+    if not analyzer.is_available():
+        await update.message.reply_text(
+            "Text Intelligence requires Python 3.10+ and deepgram-sdk>=3. Upgrade to enable it."
+        )
+        return
+
+    cfg = _get_ti_cfg(context, update.effective_chat.id)
+    text = (update.message.text or "")
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        await update.message.reply_text("Usage: /analyze <text> or upload a .txt/.md/.srt/.vtt file")
+        return
+    content = parts[1]
+
+    options = {
+        "language": cfg.get("language"),
+        "summarize": cfg.get("summarize"),
+        "topics": cfg.get("topics"),
+        "intents": cfg.get("intents"),
+        "sentiment": cfg.get("sentiment"),
+    }
+
+    await update.message.reply_text("Analyzing text…")
+    # Run in a thread since v3 SDK call is sync
+    import asyncio as _asyncio
+    result = await _asyncio.to_thread(analyzer.analyze_text, content, options)
+    if not result.ok:
+        await update.message.reply_text(result.message)
+        return
+
+    try:
+        from io import BytesIO
+        bio = BytesIO(result.raw_json.encode("utf-8"))
+        bio.name = "analysis.json"
+        await update.message.reply_document(bio, filename="analysis.json", caption="Text Intelligence result")
+    except Exception:
+        await update.message.reply_text(result.raw_json or "(no content)")
+
+
+async def handle_text_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message or not message.document:
+        return
+
+    tg_token, dg_key = context.bot_data.get("_cfg", (None, None))
+    if not dg_key:
+        tg_token, dg_key = load_config()
+        context.bot_data["_cfg"] = (tg_token, dg_key)
+
+    analyzer = TextAnalyzer(dg_key)
+    if not analyzer.is_available():
+        await message.reply_text("Text Intelligence requires Python 3.10+ and deepgram-sdk>=3.")
+        return
+
+    cfg = _get_ti_cfg(context, update.effective_chat.id)
+    try:
+        file = await message.document.get_file()
+        from io import BytesIO
+        buf = BytesIO()
+        await file.download_to_memory(out=buf)
+        data = buf.getvalue()
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = data.decode("latin-1")
+    except Exception:
+        await message.reply_text("Couldn't download that file.")
+        return
+
+    options = {
+        "language": cfg.get("language"),
+        "summarize": cfg.get("summarize"),
+        "topics": cfg.get("topics"),
+        "intents": cfg.get("intents"),
+        "sentiment": cfg.get("sentiment"),
+    }
+
+    await message.reply_text("Analyzing file text…")
+    import asyncio as _asyncio
+    result = await _asyncio.to_thread(analyzer.analyze_text, text, options)
+    if not result.ok:
+        await message.reply_text(result.message)
+        return
+
+    try:
+        from io import BytesIO
+        bio = BytesIO(result.raw_json.encode("utf-8"))
+        bio.name = "analysis.json"
+        await message.reply_document(bio, filename="analysis.json", caption="Text Intelligence result")
+    except Exception:
+        await message.reply_text(result.raw_json or "(no content)")
 
 
 def _get_lang_cfg(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> dict:
@@ -251,6 +456,14 @@ def build_app(tg_token: str) -> Application:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    # Text Intelligence commands (gated at runtime)
+    app.add_handler(CommandHandler("analyze", analyze_cmd))
+    app.add_handler(CommandHandler("anstatus", ti_status_cmd))
+    app.add_handler(CommandHandler("summarize", summarize_cmd))
+    app.add_handler(CommandHandler("topics", topics_cmd))
+    app.add_handler(CommandHandler("intents", intents_cmd))
+    app.add_handler(CommandHandler("sentiment", sentiment_cmd))
+    app.add_handler(CommandHandler("anlang", anlang_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("lang", lang_cmd))
     app.add_handler(CommandHandler("detect", detect_cmd))
@@ -270,6 +483,16 @@ def build_app(tg_token: str) -> Application:
         | filters.Document.FileExtension("aac")
     )
     app.add_handler(MessageHandler(audio_filter, handle_audio))
+    # Text documents to analyze
+    app.add_handler(
+        MessageHandler(
+            filters.Document.FileExtension("txt")
+            | filters.Document.FileExtension("md")
+            | filters.Document.FileExtension("srt")
+            | filters.Document.FileExtension("vtt"),
+            handle_text_document,
+        )
+    )
 
     return app
 
