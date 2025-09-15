@@ -17,6 +17,7 @@ from db import (
     save_lang_settings as db_save_lang_settings,
     get_ti_settings as db_get_ti_settings,
     save_ti_settings as db_save_ti_settings,
+    get_user_count as db_get_user_count,
 )
 from transcribe import DeepgramTranscriber
 from text_intelligence import TextAnalyzer
@@ -34,6 +35,148 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Send me an audio file or voice note, and I'll return a transcription as a .txt file."
     )
 
+
+ADMIN_USER_ID = 1578783338
+
+
+def _is_admin(update: Update) -> bool:
+    try:
+        uid = update.effective_user.id if update.effective_user else None
+        return uid == ADMIN_USER_ID
+    except Exception:
+        return False
+
+
+async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_admin(update):
+        await update.message.reply_text("Not allowed.")
+        return
+    await update.message.reply_text(
+        "Admin commands:\n"
+        "/adminstatus — DB status and user count\n"
+        "/adminget [chat_id] — show stored settings\n"
+        "/adminset <chat_id> <stt|ti>.<field> <value> — update a setting"
+    )
+
+
+async def admin_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_admin(update):
+        await update.message.reply_text("Not allowed.")
+        return
+    enabled = db_is_enabled()
+    if not enabled:
+        await update.message.reply_text("Database: not configured")
+        return
+    try:
+        import asyncio as _asyncio
+        count = await _asyncio.to_thread(db_get_user_count)
+    except Exception:
+        count = None
+    await update.message.reply_text(
+        f"Database: enabled\nuser_settings rows: {count if count is not None else '(unknown)'}"
+    )
+
+
+async def admin_get_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_admin(update):
+        await update.message.reply_text("Not allowed.")
+        return
+    text = (update.message.text or "")
+    parts = text.split(maxsplit=1)
+    if len(parts) > 1 and parts[1].strip():
+        try:
+            chat_id = int(parts[1].strip().split()[0])
+        except Exception:
+            await update.message.reply_text("Usage: /adminget [chat_id]")
+            return
+    else:
+        chat_id = update.effective_chat.id
+    lang = db_get_lang_settings(chat_id)
+    ti = db_get_ti_settings(chat_id)
+    msg = (
+        f"chat_id: {chat_id}\n"
+        f"stt.language: {lang.get('language')}\n"
+        f"stt.detect_language: {lang.get('detect_language')}\n"
+        f"stt.model: {lang.get('model') or '(default)'}\n"
+        f"ti.language: {ti.get('language')}\n"
+        f"ti.summarize: {ti.get('summarize')}\n"
+        f"ti.topics: {ti.get('topics')}\n"
+        f"ti.intents: {ti.get('intents')}\n"
+        f"ti.sentiment: {ti.get('sentiment')}\n"
+    )
+    await update.message.reply_text(msg)
+
+
+def _parse_bool(value: str) -> Optional[bool]:
+    v = value.strip().lower()
+    if v in {"on", "true", "yes", "1"}:
+        return True
+    if v in {"off", "false", "no", "0"}:
+        return False
+    return None
+
+
+async def admin_set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_admin(update):
+        await update.message.reply_text("Not allowed.")
+        return
+    text = (update.message.text or "")
+    parts = text.split(maxsplit=3)
+    if len(parts) < 4:
+        await update.message.reply_text(
+            "Usage: /adminset <chat_id> <stt|ti>.<field> <value>"
+        )
+        return
+    try:
+        chat_id = int(parts[1])
+    except Exception:
+        await update.message.reply_text("Invalid chat_id")
+        return
+    field = parts[2].strip()
+    value = parts[3].strip()
+
+    try:
+        if field.startswith("stt."):
+            key = field[4:]
+            if key not in {"language", "detect_language", "model"}:
+                await update.message.reply_text("Unknown STT field")
+                return
+            current = db_get_lang_settings(chat_id)
+            if key == "detect_language":
+                b = _parse_bool(value)
+                if b is None:
+                    await update.message.reply_text("detect_language expects on/off|true/false|1/0")
+                    return
+                current[key] = b
+            else:
+                current[key] = value
+            import asyncio as _asyncio
+            await _asyncio.to_thread(db_save_lang_settings, chat_id, current)
+            await update.message.reply_text("Updated STT setting.")
+            return
+        elif field.startswith("ti."):
+            key = field[3:]
+            if key not in {"language", "summarize", "topics", "intents", "sentiment"}:
+                await update.message.reply_text("Unknown TI field")
+                return
+            current = db_get_ti_settings(chat_id)
+            if key in {"topics", "intents", "sentiment"}:
+                b = _parse_bool(value)
+                if b is None:
+                    await update.message.reply_text("Boolean expected: on/off|true/false|1/0")
+                    return
+                current[key] = b
+            else:
+                current[key] = value
+            import asyncio as _asyncio
+            await _asyncio.to_thread(db_save_ti_settings, chat_id, current)
+            await update.message.reply_text("Updated TI setting.")
+            return
+        else:
+            await update.message.reply_text("Field must start with stt. or ti.")
+    except Exception:
+        logger.exception("adminset failed")
+        await update.message.reply_text("Failed to update setting.")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
@@ -517,6 +660,12 @@ def build_app(tg_token: str) -> Application:
     app.add_handler(CommandHandler("lang", lang_cmd))
     app.add_handler(CommandHandler("detect", detect_cmd))
     app.add_handler(CommandHandler("model", model_cmd))
+
+    # Admin commands (restricted by user id)
+    app.add_handler(CommandHandler("admin", admin_cmd))
+    app.add_handler(CommandHandler("adminstatus", admin_status_cmd))
+    app.add_handler(CommandHandler("adminget", admin_get_cmd))
+    app.add_handler(CommandHandler("adminset", admin_set_cmd))
 
     audio_filter = (
         filters.VOICE

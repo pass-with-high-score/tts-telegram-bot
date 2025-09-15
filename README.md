@@ -78,6 +78,14 @@ Text Intelligence (Python 3.10+, Deepgram v3)
 - `/anlang <code>` — Analysis language (e.g., `en`, `vi`)
 - You can also upload `.txt/.md/.srt/.vtt` files to analyze their contents
 
+Admin (for user id 1578783338)
+- `/admin` — list admin commands
+- `/adminstatus` — show DB status and user count
+- `/adminget [chat_id]` — show stored settings for a user (defaults to current chat)
+- `/adminset <chat_id> <stt|ti>.<field> <value>` — update a setting
+  - STT fields: `stt.language`, `stt.detect_language` (on/off), `stt.model`
+  - TI fields: `ti.language`, `ti.summarize`, `ti.topics` (on/off), `ti.intents` (on/off), `ti.sentiment` (on/off)
+
 Tip for Vietnamese (vi)
 - On Deepgram v2, some language/model combos may 400. If that happens, try `/lang auto`. For best results, upgrade to Python 3.10+ and use model `nova-2`.
 

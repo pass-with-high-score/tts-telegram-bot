@@ -179,3 +179,13 @@ def save_ti_settings(chat_id: int, cfg: Dict[str, Any]) -> None:
                 ),
             )
 
+
+def get_user_count() -> Optional[int]:
+    pool = _ensure_pool()
+    if not pool:
+        return None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select count(*) from user_settings")
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
